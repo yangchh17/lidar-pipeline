@@ -1,171 +1,350 @@
-# run_lidar_pipeline.R
-# Minimal LiDAR pipeline:
-# - Filter duplicates per tile
-# - Ground classify (CSF) with original params
-# - DTM (0.5 m) via knnidw(k=12, p=2) + hillshade
-# - DSM (0.5 m) via pitfree
-# Author: Chenghao Yang
-# License: MIT (suggested)
+#!/usr/bin/env Rscript
+# =============================================================================
+# LiDAR DTM/DSM Processing Pipeline
+#
+# Processes tiled LAS files through:
+#   1. Duplicate point filtering
+#   2. CSF ground classification
+#   3. DTM generation (knnidw)
+#   4. DSM generation (pitfree)
+#   5. Hillshade rendering
+#
+# Usage:
+#   Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results
+#   Rscript run_lidar_pipeline.R --config config.yaml
+#   Rscript run_lidar_pipeline.R --input ./data --output ./out --dry-run
+#
+# =============================================================================
 
 suppressPackageStartupMessages({
-  library(sf)
-  library(terra)
   library(lidR)
-  library(dplyr)
-  library(readr)
+  library(terra)
   library(tools)
+  library(argparse)
 })
 
-# -----------------------------
-# 0) INPUTS — EDIT THESE PATHS
-# -----------------------------
-# Folder with tiled .las files (keep .las to match original behavior)
-las_input_dir <- "path/to/las_tiles"
+# =============================================================================
+# CLI Argument Parsing
+# =============================================================================
 
-# Main output directory
-output_base   <- "path/to/output"
+create_parser <- function() {
+  parser <- ArgumentParser(
+    description = "LiDAR terrain processing pipeline: filter, classify, DTM, DSM, hillshade"
+  )
 
-# Subfolders (kept simple; names match intent)
-out_dirs <- list(
-  filtered   = file.path(output_base, "filtered_las"),
-  classified = file.path(output_base, "classified_las"),
-  dtm_dir    = file.path(output_base, "dtm_tin_05"),
-  dsm_dir    = file.path(output_base, "dsm_pf_05"),
-  chm_dir    = file.path(output_base, "chm_pf_05") # reserved for future
-)
+  # Required
+  parser$add_argument("--input", required = TRUE,
+                      help = "Directory containing tiled LAS/LAZ files")
+  parser$add_argument("--output", required = TRUE,
+                      help = "Output directory for all results")
 
-dir.create(output_base, showWarnings = FALSE, recursive = TRUE)
-invisible(lapply(out_dirs, dir.create, showWarnings = FALSE, recursive = TRUE))
+  # Resolution
+  parser$add_argument("--resolution", type = "double", default = 0.5,
+                      help = "Output raster resolution in meters [default: 0.5]")
 
-# -----------------------------
-# Helpers
-# -----------------------------
-log_info <- function(...) cat(paste0(format(Sys.time(), "[%H:%M:%S] "), ..., "\n"))
+  # CSF parameters
+  parser$add_argument("--csf-cloth-res", type = "double", default = 0.6,
+                      help = "CSF cloth resolution [default: 0.6]")
+  parser$add_argument("--csf-threshold", type = "double", default = 0.4,
+                      help = "CSF classification threshold [default: 0.4]")
+  parser$add_argument("--csf-rigidness", type = "integer", default = 3L,
+                      help = "CSF rigidness: 1=flat, 2=moderate, 3=steep [default: 3]")
 
-safe_readLAS <- function(path) {
-  las <- try(readLAS(path), silent = TRUE)
-  if (inherits(las, "try-error") || is.null(las) || npoints(las) == 0) return(NULL)
-  las
+  # Processing
+  parser$add_argument("--chunk-size", type = "integer", default = 250L,
+                      help = "Processing chunk size in meters [default: 250]")
+  parser$add_argument("--chunk-buffer", type = "integer", default = 50L,
+                      help = "Chunk buffer in meters [default: 50]")
+  parser$add_argument("--cores", type = "integer", default = 1L,
+                      help = "Number of parallel cores [default: 1]")
+
+  # Hillshade
+  parser$add_argument("--hillshade-angle", type = "double", default = 40.0,
+                      help = "Sun elevation angle for hillshade [default: 40]")
+  parser$add_argument("--hillshade-direction", type = "double", default = 270.0,
+                      help = "Sun azimuth for hillshade [default: 270]")
+
+  # Skip flags
+  parser$add_argument("--skip-dtm", action = "store_true", default = FALSE,
+                      help = "Skip DTM generation")
+  parser$add_argument("--skip-dsm", action = "store_true", default = FALSE,
+                      help = "Skip DSM generation")
+  parser$add_argument("--skip-hillshade", action = "store_true", default = FALSE,
+                      help = "Skip hillshade generation")
+
+  # Modes
+  parser$add_argument("--dry-run", action = "store_true", default = FALSE,
+                      help = "Validate inputs and show plan without processing")
+
+  return(parser)
 }
 
-# -----------------------------
-# 1) Preprocessing: Per-tile duplicate filtering
-# -----------------------------
+# =============================================================================
+# Input Validation
+# =============================================================================
+
+validate_inputs <- function(args) {
+  errors <- character(0)
+
+  # Check input directory
+  if (!dir.exists(args$input)) {
+    errors <- c(errors, sprintf("Input directory does not exist: %s", args$input))
+  } else {
+    las_files <- list.files(args$input, pattern = "\\.(las|laz)$", ignore.case = TRUE)
+    if (length(las_files) == 0) {
+      errors <- c(errors, sprintf("No LAS/LAZ files found in: %s", args$input))
+    }
+  }
+
+  # Check parameter ranges
+  if (args$resolution <= 0) {
+    errors <- c(errors, sprintf("Resolution must be positive, got: %.2f", args$resolution))
+  }
+  if (args$csf_cloth_res <= 0) {
+    errors <- c(errors, "CSF cloth resolution must be positive")
+  }
+  if (args$csf_threshold <= 0) {
+    errors <- c(errors, "CSF threshold must be positive")
+  }
+  if (!args$csf_rigidness %in% 1:3) {
+    errors <- c(errors, "CSF rigidness must be 1 (flat), 2 (moderate), or 3 (steep)")
+  }
+  if (args$chunk_size <= 0) {
+    errors <- c(errors, "Chunk size must be positive")
+  }
+  if (args$chunk_buffer < 0) {
+    errors <- c(errors, "Chunk buffer cannot be negative")
+  }
+  if (args$cores < 1) {
+    errors <- c(errors, "Cores must be >= 1")
+  }
+
+  # Report
+  if (length(errors) > 0) {
+    cat("✗ Validation failed:\n")
+    for (e in errors) cat("  -", e, "\n")
+    quit(save = "no", status = 1)
+  }
+
+  # Summary
+  las_files <- list.files(args$input, pattern = "\\.(las|laz)$", ignore.case = TRUE)
+  total_size_mb <- sum(file.size(file.path(args$input, las_files))) / 1024^2
+
+  cat("✓ Validation passed\n")
+  cat(sprintf("  Input:       %s (%d files, %.1f MB)\n",
+              args$input, length(las_files), total_size_mb))
+  cat(sprintf("  Output:      %s\n", args$output))
+  cat(sprintf("  Resolution:  %.2f m\n", args$resolution))
+  cat(sprintf("  CSF:         cloth_res=%.2f, threshold=%.2f, rigidness=%d\n",
+              args$csf_cloth_res, args$csf_threshold, args$csf_rigidness))
+  cat(sprintf("  Chunks:      %d m (buffer: %d m)\n", args$chunk_size, args$chunk_buffer))
+  cat(sprintf("  Cores:       %d\n", args$cores))
+  cat(sprintf("  Steps:       %s\n",
+              paste(c(
+                if (!args$skip_dtm) "DTM",
+                if (!args$skip_dsm) "DSM",
+                if (!args$skip_hillshade) "Hillshade"
+              ), collapse = " → ")))
+}
+
+# =============================================================================
+# Output Directory Setup
+# =============================================================================
+
+setup_output_dirs <- function(output_base) {
+  dirs <- list(
+    filtered   = file.path(output_base, "01_filtered"),
+    classified = file.path(output_base, "02_classified"),
+    dtm        = file.path(output_base, "03_dtm"),
+    dsm        = file.path(output_base, "04_dsm"),
+    hillshade  = file.path(output_base, "05_hillshade")
+  )
+  for (d in dirs) dir.create(d, showWarnings = FALSE, recursive = TRUE)
+  return(dirs)
+}
+
+# =============================================================================
+# Step 1: Filter Duplicate Points
+# =============================================================================
+
 filter_duplicates_per_tile <- function(las_dir, out_dir) {
-  las_files <- list.files(las_dir, pattern = "\\.las$", full.names = TRUE)
-  if (length(las_files) == 0) stop("No .las files found in: ", las_dir)
-  
-  for (las_path in las_files) {
+  las_files <- list.files(las_dir, pattern = "\\.(las|laz)$",
+                          full.names = TRUE, ignore.case = TRUE)
+
+  cat(sprintf("\n── Step 1: Filtering duplicates (%d tiles) ──\n", length(las_files)))
+
+  for (i in seq_along(las_files)) {
+    las_path <- las_files[i]
     tile_name <- file_path_sans_ext(basename(las_path))
-    filtered_path <- file.path(out_dir, paste0(tile_name, "_filtered.las"))
-    
-    if (file.exists(filtered_path)) {
-      log_info("⏭️ Already filtered: ", basename(filtered_path))
+    out_path <- file.path(out_dir, paste0(tile_name, "_filtered.las"))
+
+    if (file.exists(out_path)) {
+      cat(sprintf("  [%d/%d] ⏭ %s (exists)\n", i, length(las_files), tile_name))
       next
     }
-    
-    las <- safe_readLAS(las_path)
-    if (is.null(las)) {
-      log_info("⚠️ Skipped (bad or empty): ", tile_name)
-      next
-    }
-    
-    log_info("🔍 Filtering duplicates for: ", tile_name)
-    writeLAS(filter_duplicates(las), filtered_path)
-    log_info("✅ Saved: ", basename(filtered_path))
+
+    tryCatch({
+      las <- readLAS(las_path)
+      if (is.empty(las)) {
+        cat(sprintf("  [%d/%d] ⚠ %s (empty, skipped)\n", i, length(las_files), tile_name))
+        next
+      }
+      las_filtered <- filter_duplicates(las)
+      n_removed <- npoints(las) - npoints(las_filtered)
+      writeLAS(las_filtered, out_path)
+      cat(sprintf("  [%d/%d] ✓ %s (removed %d duplicates)\n",
+                  i, length(las_files), tile_name, n_removed))
+    }, error = function(e) {
+      cat(sprintf("  [%d/%d] ✗ %s: %s\n", i, length(las_files), tile_name, e$message))
+    })
   }
 }
 
-# -----------------------------
-# 2) Ground classification + DTM + Hillshade
-# -----------------------------
-build_dtm <- function(filtered_dir, classified_dir, dtm_out_dir, dtm_path_out) {
+# =============================================================================
+# Step 2: CSF Ground Classification + DTM
+# =============================================================================
+
+build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
+  cat("\n── Step 2: Ground classification + DTM ──\n")
+
   ctg <- readLAScatalog(filtered_dir)
-  opt_chunk_size(ctg)   <- 250   # original values
-  opt_chunk_buffer(ctg) <- 50
-  opt_output_files(ctg) <- file.path(classified_dir, "{XLEFT}_{YBOTTOM}_classified")
-  
-  # CSF parameters (unchanged)
+  opt_chunk_size(ctg)   <- args$chunk_size
+  opt_chunk_buffer(ctg) <- args$chunk_buffer
+  opt_output_files(ctg) <- file.path(classified_dir, "{ORIGINALFILENAME}_classified")
+
+  if (args$cores > 1) {
+    library(future)
+    plan(multisession, workers = args$cores)
+  }
+
+  cat("  Classifying ground points (CSF)...\n")
   csf_algo <- csf(
-    cloth_resolution = 0.6,
-    class_threshold  = 0.4,
-    rigidness        = 3L,
-    iterations       = 1000L
+    sloop_smooth  = FALSE,
+    cloth_resolution = args$csf_cloth_res,
+    class_threshold  = args$csf_threshold,
+    rigidness        = args$csf_rigidness,
+    iterations       = 1000L,
+    time_step        = 0.65
   )
-  
-  log_info("🧭 Classifying ground with CSF...")
   classify_ground(ctg, csf_algo)
-  
-  log_info("🧩 Rasterizing DTM (0.5 m, knnidw k=12 p=2)...")
-  dtm <- rasterize_terrain(ctg, res = 0.5, algorithm = knnidw(k = 12, p = 2))
-  
-  dir.create(dtm_out_dir, showWarnings = FALSE, recursive = TRUE)
-  writeRaster(dtm, dtm_path_out, overwrite = TRUE)
-  log_info("💾 DTM written: ", dtm_path_out)
-  
-  # Terrain derivatives + hillshade (same parameters)
+
+  cat("  Building DTM (knnidw)...\n")
+  ctg_classified <- readLAScatalog(classified_dir)
+  opt_chunk_size(ctg_classified)   <- args$chunk_size
+  opt_chunk_buffer(ctg_classified) <- args$chunk_buffer
+  opt_output_files(ctg_classified) <- file.path(dtm_dir, "dtm_tile_{XLEFT}_{YBOTTOM}")
+
+  dtm <- rasterize_terrain(ctg_classified, res = args$resolution, algorithm = knnidw())
+
+  dtm_merged_path <- file.path(dirname(dtm_dir), "dtm.tif")
+  writeRaster(dtm, dtm_merged_path, overwrite = TRUE)
+  cat(sprintf("  ✓ DTM saved: %s\n", dtm_merged_path))
+
+  return(dtm_merged_path)
+}
+
+# =============================================================================
+# Step 3: DSM
+# =============================================================================
+
+build_dsm <- function(classified_dir, dsm_dir, args) {
+  cat("\n── Step 3: DSM (pitfree) ──\n")
+
+  ctg <- readLAScatalog(classified_dir)
+  opt_chunk_size(ctg)   <- args$chunk_size
+  opt_chunk_buffer(ctg) <- args$chunk_buffer
+  opt_output_files(ctg) <- file.path(dsm_dir, "dsm_tile_{XLEFT}_{YBOTTOM}")
+
+  dsm <- rasterize_canopy(ctg, res = args$resolution,
+                          algorithm = pitfree(thresholds = c(0, 10, 20, 30),
+                                              max_edge = c(0, 1.5)))
+
+  dsm_merged_path <- file.path(dirname(dsm_dir), "dsm.tif")
+  writeRaster(dsm, dsm_merged_path, overwrite = TRUE)
+  cat(sprintf("  ✓ DSM saved: %s\n", dsm_merged_path))
+
+  return(dsm_merged_path)
+}
+
+# =============================================================================
+# Step 4: Hillshade
+# =============================================================================
+
+generate_hillshade <- function(dtm_path, hillshade_dir, args) {
+  cat("\n── Step 4: Hillshade ──\n")
+
+  dtm <- rast(dtm_path)
   slope  <- terrain(dtm, v = "slope",  unit = "radians")
   aspect <- terrain(dtm, v = "aspect", unit = "radians")
-  hs <- shade(slope, aspect, angle = 40, direction = 315)
-  
-  # Quick QA plot (optional)
-  plot(hs, col = gray.colors(256), legend = FALSE, axes = FALSE, main = "DTM Hillshade")
-  
-  invisible(list(dtm = dtm, hillshade = hs))
+  hs <- shade(slope, aspect,
+              angle     = args$hillshade_angle,
+              direction = args$hillshade_direction)
+
+  hs_path <- file.path(dirname(hillshade_dir), "hillshade.tif")
+  writeRaster(hs, hs_path, overwrite = TRUE)
+  cat(sprintf("  ✓ Hillshade saved: %s\n", hs_path))
+
+  return(hs_path)
 }
 
-# -----------------------------
-# 3) DSM (pitfree) from all points
-# -----------------------------
-build_dsm <- function(classified_dir, dsm_out_dir, dsm_path_out) {
-  ctg_dsm <- readLAScatalog(classified_dir)
-  opt_chunk_size(ctg_dsm)   <- 250
-  opt_chunk_buffer(ctg_dsm) <- 50
-  
-  # Include all points (matches original intent)
-  opt_filter(ctg_dsm) <- ""
-  
-  log_info("🌲 Building DSM (pitfree, 0.5 m)...")
-  dsm <- rasterize_canopy(
-    ctg_dsm, res = 0.5,
-    algorithm = pitfree(
-      thresholds = seq(0, 60, by = 5),
-      subcircle  = 0.2
-    )
-  )
-  
-  dir.create(dsm_out_dir, showWarnings = FALSE, recursive = TRUE)
-  writeRaster(dsm, dsm_path_out, overwrite = TRUE)
-  log_info("💾 DSM written: ", dsm_path_out)
-  
-  invisible(dsm)
-}
+# =============================================================================
+# Main
+# =============================================================================
 
-# -----------------------------
-# 4) Orchestrate
-# -----------------------------
 main <- function() {
-  # A) Filter duplicates
-  filter_duplicates_per_tile(las_input_dir, out_dirs$filtered)
-  
-  # B) Ground classify + DTM + hillshade
-  dtm_tif <- file.path(output_base, "dtm.tif")
-  build_dtm(
-    filtered_dir   = out_dirs$filtered,
-    classified_dir = out_dirs$classified,
-    dtm_out_dir    = out_dirs$dtm_dir,
-    dtm_path_out   = dtm_tif
-  )
-  
-  # C) DSM (pitfree)
-  dsm_tif <- file.path(output_base, "dsm.tif")
-  build_dsm(
-    classified_dir = out_dirs$classified,
-    dsm_out_dir    = out_dirs$dsm_dir,
-    dsm_path_out   = dsm_tif
-  )
-  
-  log_info("✅ All done.")
+  start_time <- Sys.time()
+
+  # Parse arguments
+  parser <- create_parser()
+  args <- parser$parse_args()
+
+  cat("═══════════════════════════════════════════\n")
+  cat("  LiDAR Processing Pipeline\n")
+  cat("═══════════════════════════════════════════\n\n")
+
+  # Validate
+  validate_inputs(args)
+
+  # Dry run: stop here
+  if (args$dry_run) {
+    cat("\n🔍 Dry run complete. No files were processed.\n")
+    quit(save = "no", status = 0)
+  }
+
+  # Set up output directories
+  dirs <- setup_output_dirs(args$output)
+
+  # Step 1: Filter duplicates
+  filter_duplicates_per_tile(args$input, dirs$filtered)
+
+  # Step 2: DTM
+  dtm_path <- NULL
+  if (!args$skip_dtm) {
+    dtm_path <- build_dtm(dirs$filtered, dirs$classified, dirs$dtm, args)
+  } else {
+    cat("\n── Step 2: DTM (skipped) ──\n")
+  }
+
+  # Step 3: DSM
+  if (!args$skip_dsm) {
+    build_dsm(dirs$classified, dirs$dsm, args)
+  } else {
+    cat("\n── Step 3: DSM (skipped) ──\n")
+  }
+
+  # Step 4: Hillshade
+  if (!args$skip_hillshade && !is.null(dtm_path)) {
+    generate_hillshade(dtm_path, dirs$hillshade, args)
+  } else {
+    cat("\n── Step 4: Hillshade (skipped) ──\n")
+  }
+
+  # Done
+  elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+  cat("\n═══════════════════════════════════════════\n")
+  cat(sprintf("  ✓ Pipeline complete (%.1f minutes)\n", elapsed))
+  cat(sprintf("  Output: %s\n", args$output))
+  cat("═══════════════════════════════════════════\n")
 }
 
-if (sys.nframe() == 0) main()
+main()
