@@ -7,7 +7,7 @@ Automated terrain processing pipeline for tiled LAS/LAZ point cloud data.
 ## Requirements
 
 ```r
-install.packages(c("lidR", "terra", "argparse"))
+install.packages(c("lidR", "terra", "argparse", "yaml"))
 # Optional for parallel processing:
 install.packages("future")
 ```
@@ -17,6 +17,14 @@ install.packages("future")
 ```bash
 # Basic usage
 Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results
+
+# Using a config file
+cp config.example.yaml config.yaml
+# Edit config.yaml with your paths and parameters
+Rscript run_lidar_pipeline.R --config config.yaml
+
+# Config + CLI override (CLI args take precedence)
+Rscript run_lidar_pipeline.R --config config.yaml --resolution 1.0 --cores 8
 
 # Custom resolution and CSF parameters
 Rscript run_lidar_pipeline.R \
@@ -38,10 +46,32 @@ Rscript run_lidar_pipeline.R \
 Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results --cores 4
 ```
 
+## Configuration Files
+
+Use YAML config files to avoid repetitive CLI arguments:
+
+1. Copy `config.example.yaml` to `config.yaml`
+2. Edit paths and parameters
+3. Run with `--config config.yaml`
+
+**CLI arguments override config values**, so you can set defaults in the config and override specific parameters on the command line.
+
+Example `config.yaml`:
+```yaml
+input: /data/project_2024/tiles
+output: /data/project_2024/results
+resolution: 0.5
+cores: 8
+csf:
+  rigidness: 3
+  threshold: 0.4
+```
+
 ## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `--config` | — | YAML config file (CLI args override) |
 | `--input` | (required) | Directory containing LAS/LAZ tiles |
 | `--output` | (required) | Output directory |
 | `--resolution` | 0.5 | Raster resolution in meters |

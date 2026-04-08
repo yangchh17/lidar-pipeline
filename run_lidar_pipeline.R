@@ -21,6 +21,7 @@ suppressPackageStartupMessages({
   library(terra)
   library(tools)
   library(argparse)
+  library(yaml)
 })
 
 # =============================================================================
@@ -32,10 +33,14 @@ create_parser <- function() {
     description = "LiDAR terrain processing pipeline: filter, classify, DTM, DSM, hillshade"
   )
 
-  # Required
-  parser$add_argument("--input", required = TRUE,
+  # Config file
+  parser$add_argument("--config",
+                      help = "YAML configuration file (CLI args override config values)")
+
+  # Required (unless provided via config)
+  parser$add_argument("--input",
                       help = "Directory containing tiled LAS/LAZ files")
-  parser$add_argument("--output", required = TRUE,
+  parser$add_argument("--output",
                       help = "Output directory for all results")
 
   # Resolution
@@ -77,6 +82,90 @@ create_parser <- function() {
                       help = "Validate inputs and show plan without processing")
 
   return(parser)
+}
+
+# =============================================================================
+# YAML Config Loading
+# =============================================================================
+
+# Map between YAML keys and argparse argument names
+config_key_map <- list(
+  input              = "input",
+  output             = "output",
+  resolution         = "resolution",
+  csf_cloth_res      = "csf_cloth_res",
+  csf_threshold      = "csf_threshold",
+  csf_rigidness      = "csf_rigidness",
+  chunk_size         = "chunk_size",
+  chunk_buffer       = "chunk_buffer",
+  cores              = "cores",
+  hillshade_angle    = "hillshade_angle",
+  hillshade_direction = "hillshade_direction",
+  skip_dtm           = "skip_dtm",
+  skip_dsm           = "skip_dsm",
+  skip_hillshade     = "skip_hillshade"
+)
+
+load_config <- function(config_path) {
+  if (!file.exists(config_path)) {
+    cat(sprintf("✗ Config file not found: %s\n", config_path))
+    quit(save = "no", status = 1)
+  }
+
+  tryCatch({
+    cfg <- yaml::read_yaml(config_path)
+    cat(sprintf("✓ Loaded config: %s\n", config_path))
+    return(cfg)
+  }, error = function(e) {
+    cat(sprintf("✗ Failed to parse config: %s\n", e$message))
+    quit(save = "no", status = 1)
+  })
+}
+
+# Flatten nested YAML (e.g. csf.cloth_res → csf_cloth_res)
+flatten_config <- function(cfg, prefix = "") {
+  result <- list()
+  for (key in names(cfg)) {
+    full_key <- if (nzchar(prefix)) paste0(prefix, "_", key) else key
+    if (is.list(cfg[[key]]) && !is.null(names(cfg[[key]]))) {
+      result <- c(result, flatten_config(cfg[[key]], full_key))
+    } else {
+      result[[full_key]] <- cfg[[key]]
+    }
+  }
+  return(result)
+}
+
+# Merge: config provides defaults, CLI args override
+merge_config_and_args <- function(args) {
+  if (is.null(args$config)) return(args)
+
+  cfg <- load_config(args$config)
+  flat <- flatten_config(cfg)
+
+  # argparse defaults — used to detect which args the user actually set
+  defaults <- list(
+    resolution = 0.5, csf_cloth_res = 0.6, csf_threshold = 0.4,
+    csf_rigidness = 3L, chunk_size = 250L, chunk_buffer = 50L,
+    cores = 1L, hillshade_angle = 40.0, hillshade_direction = 270.0,
+    skip_dtm = FALSE, skip_dsm = FALSE, skip_hillshade = FALSE
+  )
+
+  for (yaml_key in names(config_key_map)) {
+    arg_name <- config_key_map[[yaml_key]]
+    config_val <- flat[[yaml_key]]
+    if (is.null(config_val)) next
+
+    # Use config value only if CLI arg is NULL or still at its default
+    cli_val <- args[[arg_name]]
+    is_default <- !is.null(defaults[[arg_name]]) && identical(cli_val, defaults[[arg_name]])
+
+    if (is.null(cli_val) || is_default) {
+      args[[arg_name]] <- config_val
+    }
+  }
+
+  return(args)
 }
 
 # =============================================================================
@@ -297,6 +386,15 @@ main <- function() {
   # Parse arguments
   parser <- create_parser()
   args <- parser$parse_args()
+
+  # Merge YAML config (CLI args override config values)
+  args <- merge_config_and_args(args)
+
+  # Ensure required args are present (may come from config or CLI)
+  if (is.null(args$input) || is.null(args$output)) {
+    cat("✗ --input and --output are required (via CLI or config file)\n")
+    quit(save = "no", status = 1)
+  }
 
   cat("═══════════════════════════════════════════\n")
   cat("  LiDAR Processing Pipeline\n")

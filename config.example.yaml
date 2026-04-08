@@ -1,0 +1,30 @@
+# LiDAR Pipeline Configuration
+# Copy to config.yaml and adjust for your project.
+# CLI arguments override any values set here.
+
+# --- Paths ---
+input: /path/to/las/tiles
+output: /path/to/output
+
+# --- Processing ---
+resolution: 0.5       # DTM/DSM raster resolution (metres)
+cores: 4              # Parallel workers
+
+# --- CSF Ground Classification ---
+csf:
+  cloth_res: 0.6      # Cloth resolution
+  threshold: 0.4      # Classification threshold
+  rigidness: 3        # 1 = flat, 2 = moderate, 3 = steep terrain
+
+# --- Chunking ---
+chunk_size: 250        # Tile chunk size (metres)
+chunk_buffer: 50       # Buffer around chunks (metres)
+
+# --- Hillshade ---
+hillshade_angle: 40.0
+hillshade_direction: 270.0
+
+# --- Skip Steps ---
+# skip_dtm: true
+# skip_dsm: true
+# skip_hillshade: true
