@@ -26,6 +26,7 @@ suppressPackageStartupMessages({
   library(progress)
   library(R6)
   library(jsonlite)
+  library(rmarkdown)
 })
 
 # =============================================================================
@@ -326,7 +327,6 @@ validate_inputs <- function(args) {
               if (!args$skip_hillshade) "Hillshade"
             ), collapse = " → "))
 }
-}
 
 # =============================================================================
 # Output Directory Setup
@@ -503,6 +503,203 @@ generate_hillshade <- function(dtm_path, hillshade_dir, args) {
 }
 
 # =============================================================================
+# QA Metrics & Report
+# =============================================================================
+
+collect_qa_metrics <- function(las_input_dir, output_dir, dtm_path, dsm_path, state, elapsed_secs) {
+  las_files <- list.files(las_input_dir, pattern = "\\.(las|laz)$", ignore.case = TRUE)
+
+  # Count total points across input tiles
+  total_points <- 0
+  for (f in las_files) {
+    tryCatch({
+      hdr <- readLASheader(file.path(las_input_dir, f))
+      total_points <- total_points + hdr@PHB$`Number of point records`
+    }, error = function(e) NULL)
+  }
+
+  metrics <- list(
+    timestamp = as.character(Sys.time()),
+    input = list(
+      directory = las_input_dir,
+      tile_count = length(las_files),
+      total_points = total_points
+    ),
+    processing = list(
+      completed_tiles = length(state$state$completed_tiles),
+      failed_tiles = names(state$state$failed_tiles),
+      failed_count = length(state$state$failed_tiles),
+      processing_time_seconds = elapsed_secs
+    ),
+    outputs = list()
+  )
+
+  # DTM metrics
+  if (!is.null(dtm_path) && file.exists(dtm_path)) {
+    dtm <- rast(dtm_path)
+    metrics$outputs$dtm <- list(
+      path = dtm_path,
+      resolution = res(dtm)[1],
+      ncell = ncell(dtm),
+      valid_pixels = global(dtm, "notNA")[1, 1],
+      elevation_min = global(dtm, "min", na.rm = TRUE)[1, 1],
+      elevation_max = global(dtm, "max", na.rm = TRUE)[1, 1],
+      elevation_mean = global(dtm, "mean", na.rm = TRUE)[1, 1],
+      elevation_sd = global(dtm, "sd", na.rm = TRUE)[1, 1]
+    )
+  }
+
+  # DSM metrics
+  if (!is.null(dsm_path) && file.exists(dsm_path)) {
+    dsm <- rast(dsm_path)
+    metrics$outputs$dsm <- list(
+      path = dsm_path,
+      resolution = res(dsm)[1],
+      ncell = ncell(dsm),
+      valid_pixels = global(dsm, "notNA")[1, 1],
+      elevation_min = global(dsm, "min", na.rm = TRUE)[1, 1],
+      elevation_max = global(dsm, "max", na.rm = TRUE)[1, 1],
+      elevation_mean = global(dsm, "mean", na.rm = TRUE)[1, 1],
+      elevation_sd = global(dsm, "sd", na.rm = TRUE)[1, 1]
+    )
+  }
+
+  # Save metrics as JSON
+  metrics_path <- file.path(output_dir, "qa_metrics.json")
+  jsonlite::write_json(metrics, metrics_path, auto_unbox = TRUE, pretty = TRUE)
+  flog.info("QA metrics saved: %s", metrics_path)
+
+  return(metrics)
+}
+
+save_hillshade_preview <- function(dtm_path, output_dir) {
+  if (is.null(dtm_path) || !file.exists(dtm_path)) {
+    flog.warn("No DTM available for hillshade preview")
+    return(NULL)
+  }
+
+  dtm <- rast(dtm_path)
+  slope  <- terrain(dtm, v = "slope",  unit = "radians")
+  aspect <- terrain(dtm, v = "aspect", unit = "radians")
+  hs <- shade(slope, aspect, angle = 40, direction = 315)
+
+  png_path <- file.path(output_dir, "dtm_hillshade.png")
+  png(png_path, width = 1600, height = 1200, res = 150)
+  plot(hs, col = gray.colors(256), legend = FALSE, axes = FALSE,
+       main = "DTM Hillshade Preview")
+  dev.off()
+
+  flog.info("Hillshade preview saved: %s", png_path)
+  return(png_path)
+}
+
+generate_qa_report <- function(metrics, output_dir) {
+  # Build failed tiles section
+  if (metrics$processing$failed_count > 0) {
+    failed_section <- paste("- ", metrics$processing$failed_tiles, collapse = "\n")
+  } else {
+    failed_section <- "None \U0001f389"
+  }
+
+  # DTM stats block
+  if (!is.null(metrics$outputs$dtm)) {
+    d <- metrics$outputs$dtm
+    dtm_block <- sprintf(
+      "| Metric | Value |\n|--------|-------|\n| Resolution | %.2f m |\n| Valid Pixels | %s |\n| Elevation Min | %.2f m |\n| Elevation Max | %.2f m |\n| Elevation Mean | %.2f m |\n| Std Dev | %.2f m |",
+      d$resolution,
+      format(d$valid_pixels, big.mark = ","),
+      d$elevation_min, d$elevation_max, d$elevation_mean, d$elevation_sd
+    )
+  } else {
+    dtm_block <- "*DTM generation was skipped.*"
+  }
+
+  # DSM stats block
+  if (!is.null(metrics$outputs$dsm)) {
+    s <- metrics$outputs$dsm
+    dsm_block <- sprintf(
+      "| Metric | Value |\n|--------|-------|\n| Resolution | %.2f m |\n| Valid Pixels | %s |\n| Elevation Min | %.2f m |\n| Elevation Max | %.2f m |\n| Elevation Mean | %.2f m |\n| Std Dev | %.2f m |",
+      s$resolution,
+      format(s$valid_pixels, big.mark = ","),
+      s$elevation_min, s$elevation_max, s$elevation_mean, s$elevation_sd
+    )
+  } else {
+    dsm_block <- "*DSM generation was skipped.*"
+  }
+
+  # Hillshade preview
+  hs_png <- file.path(output_dir, "dtm_hillshade.png")
+  if (file.exists(hs_png)) {
+    hs_block <- "![DTM Hillshade](dtm_hillshade.png)"
+  } else {
+    hs_block <- "*No hillshade preview available.*"
+  }
+
+  rmd_content <- sprintf('
+---
+title: "LiDAR Pipeline QA Report"
+date: "%s"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+---
+
+## Processing Summary
+
+| Metric | Value |
+|--------|-------|
+| Input Directory | `%s` |
+| Input Tiles | %d |
+| Total Points | %s |
+| Tiles Completed | %d |
+| Tiles Failed | %d |
+| Processing Time | %.1f minutes |
+
+## DTM Statistics
+
+%s
+
+## DSM Statistics
+
+%s
+
+## Hillshade Preview
+
+%s
+
+## Failed Tiles
+
+%s
+',
+    metrics$timestamp,
+    metrics$input$directory,
+    metrics$input$tile_count,
+    format(metrics$input$total_points, big.mark = ","),
+    metrics$processing$completed_tiles,
+    metrics$processing$failed_count,
+    metrics$processing$processing_time_seconds / 60,
+    dtm_block,
+    dsm_block,
+    hs_block,
+    failed_section
+  )
+
+  rmd_file <- file.path(output_dir, "qa_report.Rmd")
+  report_path <- file.path(output_dir, "qa_report.html")
+
+  writeLines(rmd_content, rmd_file)
+
+  tryCatch({
+    rmarkdown::render(rmd_file, output_file = report_path, quiet = TRUE)
+    flog.info("QA report generated: %s", report_path)
+  }, error = function(e) {
+    flog.warn("Could not render HTML report (pandoc installed?): %s", e$message)
+    flog.info("Raw Rmd saved: %s", rmd_file)
+  })
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -572,11 +769,13 @@ main <- function() {
   }
 
   # Step 3: DSM
+  dsm_path <- NULL
   if (!args$skip_dsm) {
     if (resume && state$is_step_completed("dsm")) {
       flog.info("Step 3: DSM (skipped — checkpoint)")
+      dsm_path <- file.path(args$output, "dsm.tif")
     } else {
-      build_dsm(dirs$classified, dirs$dsm, args)
+      dsm_path <- build_dsm(dirs$classified, dirs$dsm, args)
       state$mark_step_completed("dsm")
     }
   } else {
@@ -595,9 +794,16 @@ main <- function() {
     flog.info("Step 4: Hillshade (skipped)")
   }
 
+  # Step 5: QA Report
+  elapsed_secs <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+
+  flog.info("Step 5: Generating QA report")
+  save_hillshade_preview(dtm_path, args$output)
+  metrics <- collect_qa_metrics(args$input, args$output, dtm_path, dsm_path, state, elapsed_secs)
+  generate_qa_report(metrics, args$output)
+
   # Done
-  elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
-  flog.info("Pipeline complete (%.1f minutes)", elapsed)
+  flog.info("Pipeline complete (%.1f minutes)", elapsed_secs / 60)
   flog.info("Output: %s", args$output)
 }
 
