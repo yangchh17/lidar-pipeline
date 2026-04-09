@@ -4,6 +4,8 @@ Automated terrain processing pipeline for tiled LAS/LAZ point cloud data.
 
 **Generates:** DTM, DSM, and hillshade rasters from raw LiDAR tiles.
 
+> **New to LiDAR?** Check out the [Beginner's Guide](docs/GUIDE.md) — a step-by-step tutorial covering LiDAR fundamentals, setup, and how to use this pipeline from scratch.
+
 ## Requirements
 
 ```r
@@ -87,6 +89,19 @@ csf:
 | `--skip-dsm` | false | Skip DSM generation |
 | `--skip-hillshade` | false | Skip hillshade generation |
 | `--dry-run` | false | Validate only, no processing |
+
+## Logging
+
+All output uses structured logging via `futile.logger`:
+
+- Console: INFO level by default, DEBUG with `--verbose`
+- File: always DEBUG level, saved to `<output_dir>/pipeline.log`
+- Progress bars show real-time tile processing status
+
+```bash
+# Verbose mode for debugging
+Rscript run_lidar_pipeline.R --config config.yaml --verbose
+```
 
 ## Output Structure
 
