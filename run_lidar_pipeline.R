@@ -22,7 +22,30 @@ suppressPackageStartupMessages({
   library(tools)
   library(argparse)
   library(yaml)
+  library(futile.logger)
+  library(progress)
 })
+
+# =============================================================================
+# Logging Setup
+# =============================================================================
+
+setup_logging <- function(output_dir, verbose = FALSE) {
+  # Console: INFO by default, DEBUG if verbose
+  console_level <- if (verbose) DEBUG else INFO
+  flog.threshold(console_level)
+
+  # Console layout: clean format
+  flog.layout(layout.format("~l [~t] ~m"), name = "ROOT")
+
+  # File logger: always DEBUG level, writes to output_dir/pipeline.log
+  log_file <- file.path(output_dir, "pipeline.log")
+  flog.appender(appender.tee(log_file))
+  flog.threshold(DEBUG)
+
+  flog.info("Log file: %s", log_file)
+  invisible(log_file)
+}
 
 # =============================================================================
 # CLI Argument Parsing
@@ -80,6 +103,8 @@ create_parser <- function() {
   # Modes
   parser$add_argument("--dry-run", action = "store_true", default = FALSE,
                       help = "Validate inputs and show plan without processing")
+  parser$add_argument("--verbose", action = "store_true", default = FALSE,
+                      help = "Enable verbose (DEBUG level) console logging")
 
   return(parser)
 }
@@ -103,21 +128,22 @@ config_key_map <- list(
   hillshade_direction = "hillshade_direction",
   skip_dtm           = "skip_dtm",
   skip_dsm           = "skip_dsm",
-  skip_hillshade     = "skip_hillshade"
+  skip_hillshade     = "skip_hillshade",
+  verbose            = "verbose"
 )
 
 load_config <- function(config_path) {
   if (!file.exists(config_path)) {
-    cat(sprintf("✗ Config file not found: %s\n", config_path))
+    flog.error("Config file not found: %s", config_path)
     quit(save = "no", status = 1)
   }
 
   tryCatch({
     cfg <- yaml::read_yaml(config_path)
-    cat(sprintf("✓ Loaded config: %s\n", config_path))
+    flog.info("Loaded config: %s", config_path)
     return(cfg)
   }, error = function(e) {
-    cat(sprintf("✗ Failed to parse config: %s\n", e$message))
+    flog.error("Failed to parse config: %s", e$message)
     quit(save = "no", status = 1)
   })
 }
@@ -148,7 +174,8 @@ merge_config_and_args <- function(args) {
     resolution = 0.5, csf_cloth_res = 0.6, csf_threshold = 0.4,
     csf_rigidness = 3L, chunk_size = 250L, chunk_buffer = 50L,
     cores = 1L, hillshade_angle = 40.0, hillshade_direction = 270.0,
-    skip_dtm = FALSE, skip_dsm = FALSE, skip_hillshade = FALSE
+    skip_dtm = FALSE, skip_dsm = FALSE, skip_hillshade = FALSE,
+    verbose = FALSE
   )
 
   for (yaml_key in names(config_key_map)) {
@@ -210,8 +237,8 @@ validate_inputs <- function(args) {
 
   # Report
   if (length(errors) > 0) {
-    cat("✗ Validation failed:\n")
-    for (e in errors) cat("  -", e, "\n")
+    flog.error("Validation failed:")
+    for (e in errors) flog.error("  - %s", e)
     quit(save = "no", status = 1)
   }
 
@@ -219,21 +246,22 @@ validate_inputs <- function(args) {
   las_files <- list.files(args$input, pattern = "\\.(las|laz)$", ignore.case = TRUE)
   total_size_mb <- sum(file.size(file.path(args$input, las_files))) / 1024^2
 
-  cat("✓ Validation passed\n")
-  cat(sprintf("  Input:       %s (%d files, %.1f MB)\n",
-              args$input, length(las_files), total_size_mb))
-  cat(sprintf("  Output:      %s\n", args$output))
-  cat(sprintf("  Resolution:  %.2f m\n", args$resolution))
-  cat(sprintf("  CSF:         cloth_res=%.2f, threshold=%.2f, rigidness=%d\n",
-              args$csf_cloth_res, args$csf_threshold, args$csf_rigidness))
-  cat(sprintf("  Chunks:      %d m (buffer: %d m)\n", args$chunk_size, args$chunk_buffer))
-  cat(sprintf("  Cores:       %d\n", args$cores))
-  cat(sprintf("  Steps:       %s\n",
-              paste(c(
-                if (!args$skip_dtm) "DTM",
-                if (!args$skip_dsm) "DSM",
-                if (!args$skip_hillshade) "Hillshade"
-              ), collapse = " → ")))
+  flog.info("Validation passed")
+  flog.info("  Input:       %s (%d files, %.1f MB)",
+            args$input, length(las_files), total_size_mb)
+  flog.info("  Output:      %s", args$output)
+  flog.info("  Resolution:  %.2f m", args$resolution)
+  flog.info("  CSF:         cloth_res=%.2f, threshold=%.2f, rigidness=%d",
+            args$csf_cloth_res, args$csf_threshold, args$csf_rigidness)
+  flog.info("  Chunks:      %d m (buffer: %d m)", args$chunk_size, args$chunk_buffer)
+  flog.info("  Cores:       %d", args$cores)
+  flog.info("  Steps:       %s",
+            paste(c(
+              if (!args$skip_dtm) "DTM",
+              if (!args$skip_dsm) "DSM",
+              if (!args$skip_hillshade) "Hillshade"
+            ), collapse = " → "))
+}
 }
 
 # =============================================================================
@@ -249,6 +277,7 @@ setup_output_dirs <- function(output_base) {
     hillshade  = file.path(output_base, "05_hillshade")
   )
   for (d in dirs) dir.create(d, showWarnings = FALSE, recursive = TRUE)
+  flog.debug("Output directories created in: %s", output_base)
   return(dirs)
 }
 
@@ -259,8 +288,18 @@ setup_output_dirs <- function(output_base) {
 filter_duplicates_per_tile <- function(las_dir, out_dir) {
   las_files <- list.files(las_dir, pattern = "\\.(las|laz)$",
                           full.names = TRUE, ignore.case = TRUE)
+  n <- length(las_files)
 
-  cat(sprintf("\n── Step 1: Filtering duplicates (%d tiles) ──\n", length(las_files)))
+  flog.info("Step 1: Filtering duplicates (%d tiles)", n)
+
+  pb <- progress_bar$new(
+    format = "  Filtering [:bar] :current/:total | :elapsed",
+    total = n, clear = FALSE, width = 60
+  )
+
+  success <- 0L
+  skipped <- 0L
+  failed  <- 0L
 
   for (i in seq_along(las_files)) {
     las_path <- las_files[i]
@@ -268,25 +307,33 @@ filter_duplicates_per_tile <- function(las_dir, out_dir) {
     out_path <- file.path(out_dir, paste0(tile_name, "_filtered.las"))
 
     if (file.exists(out_path)) {
-      cat(sprintf("  [%d/%d] ⏭ %s (exists)\n", i, length(las_files), tile_name))
+      flog.debug("  Skip (exists): %s", tile_name)
+      skipped <- skipped + 1L
+      pb$tick()
       next
     }
 
     tryCatch({
       las <- readLAS(las_path)
       if (is.empty(las)) {
-        cat(sprintf("  [%d/%d] ⚠ %s (empty, skipped)\n", i, length(las_files), tile_name))
+        flog.warn("  Empty tile skipped: %s", tile_name)
+        skipped <- skipped + 1L
+        pb$tick()
         next
       }
       las_filtered <- filter_duplicates(las)
       n_removed <- npoints(las) - npoints(las_filtered)
       writeLAS(las_filtered, out_path)
-      cat(sprintf("  [%d/%d] ✓ %s (removed %d duplicates)\n",
-                  i, length(las_files), tile_name, n_removed))
+      flog.debug("  Filtered: %s (removed %d duplicates)", tile_name, n_removed)
+      success <- success + 1L
     }, error = function(e) {
-      cat(sprintf("  [%d/%d] ✗ %s: %s\n", i, length(las_files), tile_name, e$message))
+      flog.error("  Failed: %s - %s", tile_name, e$message)
+      failed <- failed + 1L
     })
+    pb$tick()
   }
+
+  flog.info("  Step 1 done: %d filtered, %d skipped, %d failed", success, skipped, failed)
 }
 
 # =============================================================================
@@ -294,7 +341,7 @@ filter_duplicates_per_tile <- function(las_dir, out_dir) {
 # =============================================================================
 
 build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
-  cat("\n── Step 2: Ground classification + DTM ──\n")
+  flog.info("Step 2: Ground classification + DTM")
 
   ctg <- readLAScatalog(filtered_dir)
   opt_chunk_size(ctg)   <- args$chunk_size
@@ -306,7 +353,7 @@ build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
     plan(multisession, workers = args$cores)
   }
 
-  cat("  Classifying ground points (CSF)...\n")
+  flog.info("  Classifying ground points (CSF)...")
   csf_algo <- csf(
     sloop_smooth  = FALSE,
     cloth_resolution = args$csf_cloth_res,
@@ -317,7 +364,7 @@ build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
   )
   classify_ground(ctg, csf_algo)
 
-  cat("  Building DTM (knnidw)...\n")
+  flog.info("  Building DTM (knnidw)...")
   ctg_classified <- readLAScatalog(classified_dir)
   opt_chunk_size(ctg_classified)   <- args$chunk_size
   opt_chunk_buffer(ctg_classified) <- args$chunk_buffer
@@ -327,7 +374,7 @@ build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
 
   dtm_merged_path <- file.path(dirname(dtm_dir), "dtm.tif")
   writeRaster(dtm, dtm_merged_path, overwrite = TRUE)
-  cat(sprintf("  ✓ DTM saved: %s\n", dtm_merged_path))
+  flog.info("  DTM saved: %s", dtm_merged_path)
 
   return(dtm_merged_path)
 }
