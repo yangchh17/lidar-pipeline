@@ -24,7 +24,69 @@ suppressPackageStartupMessages({
   library(yaml)
   library(futile.logger)
   library(progress)
+  library(R6)
+  library(jsonlite)
 })
+
+# =============================================================================
+# State Tracker (Checkpoint & Resume)
+# =============================================================================
+
+StateTracker <- R6Class("StateTracker",
+  public = list(
+    state_file = NULL,
+    state = list(),
+    
+    initialize = function(output_dir) {
+      self$state_file <- file.path(output_dir, ".pipeline_state.json")
+      self$load()
+    },
+    
+    load = function() {
+      if (file.exists(self$state_file)) {
+        self$state <- jsonlite::read_json(self$state_file)
+        flog.info("Loaded checkpoint: %d tiles completed, %d steps done",
+                  length(self$state$completed_tiles),
+                  length(self$state$completed_steps))
+      } else {
+        self$state <- list(
+          started_at = as.character(Sys.time()),
+          completed_tiles = list(),
+          failed_tiles = list(),
+          completed_steps = list()
+        )
+      }
+    },
+    
+    save = function() {
+      jsonlite::write_json(self$state, self$state_file,
+                          auto_unbox = TRUE, pretty = TRUE)
+    },
+    
+    is_tile_completed = function(tile_name) {
+      tile_name %in% self$state$completed_tiles
+    },
+    
+    mark_tile_completed = function(tile_name) {
+      self$state$completed_tiles <- c(self$state$completed_tiles, tile_name)
+      self$save()
+    },
+    
+    mark_tile_failed = function(tile_name, error_msg) {
+      self$state$failed_tiles[[tile_name]] <- error_msg
+      self$save()
+    },
+    
+    is_step_completed = function(step_name) {
+      step_name %in% self$state$completed_steps
+    },
+    
+    mark_step_completed = function(step_name) {
+      self$state$completed_steps <- c(self$state$completed_steps, step_name)
+      self$save()
+    }
+  )
+)
 
 # =============================================================================
 # Logging Setup
@@ -103,6 +165,8 @@ create_parser <- function() {
   # Modes
   parser$add_argument("--dry-run", action = "store_true", default = FALSE,
                       help = "Validate inputs and show plan without processing")
+  parser$add_argument("--resume", action = "store_true", default = FALSE,
+                      help = "Resume from checkpoint (skip completed tiles/steps)")
   parser$add_argument("--verbose", action = "store_true", default = FALSE,
                       help = "Enable verbose (DEBUG level) console logging")
 
@@ -285,7 +349,7 @@ setup_output_dirs <- function(output_base) {
 # Step 1: Filter Duplicate Points
 # =============================================================================
 
-filter_duplicates_per_tile <- function(las_dir, out_dir) {
+filter_duplicates_per_tile <- function(las_dir, out_dir, state = NULL, resume = FALSE) {
   las_files <- list.files(las_dir, pattern = "\\.(las|laz)$",
                           full.names = TRUE, ignore.case = TRUE)
   n <- length(las_files)
@@ -305,6 +369,14 @@ filter_duplicates_per_tile <- function(las_dir, out_dir) {
     las_path <- las_files[i]
     tile_name <- file_path_sans_ext(basename(las_path))
     out_path <- file.path(out_dir, paste0(tile_name, "_filtered.las"))
+
+    # Checkpoint: skip already-completed tiles on resume
+    if (resume && !is.null(state) && state$is_tile_completed(tile_name)) {
+      flog.debug("  Skip (checkpoint): %s", tile_name)
+      skipped <- skipped + 1L
+      pb$tick()
+      next
+    }
 
     if (file.exists(out_path)) {
       flog.debug("  Skip (exists): %s", tile_name)
@@ -326,9 +398,16 @@ filter_duplicates_per_tile <- function(las_dir, out_dir) {
       writeLAS(las_filtered, out_path)
       flog.debug("  Filtered: %s (removed %d duplicates)", tile_name, n_removed)
       success <- success + 1L
+
+      # Mark tile as completed in checkpoint
+      if (!is.null(state)) state$mark_tile_completed(tile_name)
+
     }, error = function(e) {
       flog.error("  Failed: %s - %s", tile_name, e$message)
       failed <- failed + 1L
+
+      # Track failed tile
+      if (!is.null(state)) state$mark_tile_failed(tile_name, e$message)
     })
     pb$tick()
   }
@@ -384,7 +463,7 @@ build_dtm <- function(filtered_dir, classified_dir, dtm_dir, args) {
 # =============================================================================
 
 build_dsm <- function(classified_dir, dsm_dir, args) {
-  cat("\n── Step 3: DSM (pitfree) ──\n")
+  flog.info("Step 3: DSM (pitfree)")
 
   ctg <- readLAScatalog(classified_dir)
   opt_chunk_size(ctg)   <- args$chunk_size
@@ -397,7 +476,7 @@ build_dsm <- function(classified_dir, dsm_dir, args) {
 
   dsm_merged_path <- file.path(dirname(dsm_dir), "dsm.tif")
   writeRaster(dsm, dsm_merged_path, overwrite = TRUE)
-  cat(sprintf("  ✓ DSM saved: %s\n", dsm_merged_path))
+  flog.info("  DSM saved: %s", dsm_merged_path)
 
   return(dsm_merged_path)
 }
@@ -407,7 +486,7 @@ build_dsm <- function(classified_dir, dsm_dir, args) {
 # =============================================================================
 
 generate_hillshade <- function(dtm_path, hillshade_dir, args) {
-  cat("\n── Step 4: Hillshade ──\n")
+  flog.info("Step 4: Hillshade")
 
   dtm <- rast(dtm_path)
   slope  <- terrain(dtm, v = "slope",  unit = "radians")
@@ -418,7 +497,7 @@ generate_hillshade <- function(dtm_path, hillshade_dir, args) {
 
   hs_path <- file.path(dirname(hillshade_dir), "hillshade.tif")
   writeRaster(hs, hs_path, overwrite = TRUE)
-  cat(sprintf("  ✓ Hillshade saved: %s\n", hs_path))
+  flog.info("  Hillshade saved: %s", hs_path)
 
   return(hs_path)
 }
@@ -447,49 +526,79 @@ main <- function() {
   cat("  LiDAR Processing Pipeline\n")
   cat("═══════════════════════════════════════════\n\n")
 
+  # Set up output directories (needed before logging)
+  dirs <- setup_output_dirs(args$output)
+
+  # Set up logging
+  setup_logging(args$output, args$verbose)
+
   # Validate
   validate_inputs(args)
 
   # Dry run: stop here
   if (args$dry_run) {
-    cat("\n🔍 Dry run complete. No files were processed.\n")
+    flog.info("Dry run complete. No files were processed.")
     quit(save = "no", status = 0)
   }
 
-  # Set up output directories
-  dirs <- setup_output_dirs(args$output)
+  # Initialize state tracker
+  state <- StateTracker$new(args$output)
+  resume <- args$resume
+
+  if (resume) {
+    flog.info("Resume mode enabled")
+  }
 
   # Step 1: Filter duplicates
-  filter_duplicates_per_tile(args$input, dirs$filtered)
+  if (resume && state$is_step_completed("filter")) {
+    flog.info("Step 1: Filtering duplicates (skipped — checkpoint)")
+  } else {
+    filter_duplicates_per_tile(args$input, dirs$filtered, state = state, resume = resume)
+    state$mark_step_completed("filter")
+  }
 
   # Step 2: DTM
   dtm_path <- NULL
   if (!args$skip_dtm) {
-    dtm_path <- build_dtm(dirs$filtered, dirs$classified, dirs$dtm, args)
+    if (resume && state$is_step_completed("dtm")) {
+      flog.info("Step 2: Ground classification + DTM (skipped — checkpoint)")
+      dtm_path <- file.path(args$output, "dtm.tif")
+    } else {
+      dtm_path <- build_dtm(dirs$filtered, dirs$classified, dirs$dtm, args)
+      state$mark_step_completed("dtm")
+    }
   } else {
-    cat("\n── Step 2: DTM (skipped) ──\n")
+    flog.info("Step 2: DTM (skipped — user flag)")
   }
 
   # Step 3: DSM
   if (!args$skip_dsm) {
-    build_dsm(dirs$classified, dirs$dsm, args)
+    if (resume && state$is_step_completed("dsm")) {
+      flog.info("Step 3: DSM (skipped — checkpoint)")
+    } else {
+      build_dsm(dirs$classified, dirs$dsm, args)
+      state$mark_step_completed("dsm")
+    }
   } else {
-    cat("\n── Step 3: DSM (skipped) ──\n")
+    flog.info("Step 3: DSM (skipped — user flag)")
   }
 
   # Step 4: Hillshade
   if (!args$skip_hillshade && !is.null(dtm_path)) {
-    generate_hillshade(dtm_path, dirs$hillshade, args)
+    if (resume && state$is_step_completed("hillshade")) {
+      flog.info("Step 4: Hillshade (skipped — checkpoint)")
+    } else {
+      generate_hillshade(dtm_path, dirs$hillshade, args)
+      state$mark_step_completed("hillshade")
+    }
   } else {
-    cat("\n── Step 4: Hillshade (skipped) ──\n")
+    flog.info("Step 4: Hillshade (skipped)")
   }
 
   # Done
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
-  cat("\n═══════════════════════════════════════════\n")
-  cat(sprintf("  ✓ Pipeline complete (%.1f minutes)\n", elapsed))
-  cat(sprintf("  Output: %s\n", args$output))
-  cat("═══════════════════════════════════════════\n")
+  flog.info("Pipeline complete (%.1f minutes)", elapsed)
+  flog.info("Output: %s", args$output)
 }
 
 main()
