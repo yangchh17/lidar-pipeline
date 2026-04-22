@@ -28,3 +28,6 @@ hillshade_direction: 270.0
 # skip_dtm: true
 # skip_dsm: true
 # skip_hillshade: true
+
+# --- Logging ---
+# verbose: true          # DEBUG level console output
