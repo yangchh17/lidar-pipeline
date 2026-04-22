@@ -1,0 +1,312 @@
+# LiDAR Pipeline Modernization - Task Tracker
+
+**Project Start:** 2026-04-07  
+**Target Completion:** 2026-05-19 (6 weeks)  
+**Current Phase:** Phase 2 - Python Wrapper
+
+---
+
+## Quick Status
+
+| Phase | Status | Progress | Target Date |
+|-------|--------|----------|-------------|
+| Phase 1: R Engine Refactoring | ✅ Complete | 5/5 tasks | 2026-04-14 |
+| Phase 2: Python Wrapper | 🔵 In Progress | 0/3 tasks | 2026-04-21 |
+| Phase 3: Streamlit GUI | ⚪ Pending | 0/5 tasks | 2026-05-05 |
+| Phase 4: Documentation | ⚪ Pending | 0/4 tasks | 2026-05-12 |
+| Phase 5: Portfolio Integration | ⚪ Pending | 0/3 tasks | 2026-05-19 |
+
+**Legend:** 🔵 In Progress | ✅ Complete | ⚪ Not Started | ⚠️ Blocked
+
+---
+
+## Phase 1: R Engine Refactoring (Week 1)
+
+### Task 1.1: CLI Argument Parsing ✅
+- [x] Install argparse package
+- [x] Add argument parser with all parameters
+- [x] Replace hardcoded paths with args
+- [x] Add input validation function
+- [x] Implement --dry-run mode
+- [x] Test with various parameter combinations
+- [x] Commit: `feat: add CLI argument parsing`
+
+**Estimated:** 1-2 hours | **Status:** ✅ Complete (2026-04-07)
+
+---
+
+### Task 1.2: Configuration File Support ✅
+- [x] Install yaml package
+- [x] Add --config argument
+- [x] Implement config loader
+- [x] Implement config/args merge logic
+- [x] Create config.example.yaml
+- [x] Test config file loading
+- [x] Test CLI override of config values
+- [x] Commit: `feat: add YAML config file support`
+
+**Estimated:** 1-2 hours | **Status:** ✅ Complete (2026-04-07)
+
+---
+
+### Task 1.3: Robust Error Handling & Logging ✅
+- [x] Install futile.logger and progress packages
+- [x] Set up logging (console + file)
+- [x] Replace all cat() with flog.*()
+- [x] Add tryCatch to tile processing loops
+- [x] Add progress bars
+- [x] Test error handling with bad LAS file
+- [x] Verify log file created correctly
+- [x] Commit: `feat: add structured logging and error handling`
+
+**Estimated:** 2-3 hours | **Status:** ✅ Complete (2026-04-08)
+
+---
+
+### Task 1.4: Checkpoint & Resume ✅
+- [x] Install R6 and jsonlite packages
+- [x] Implement StateTracker R6 class
+- [x] Add --resume flag
+- [x] Integrate state tracking in processing functions
+- [x] Test: interrupt pipeline and resume
+- [x] Verify checkpoint file format
+- [x] Commit: `feat: add checkpoint and resume capability`
+
+**Estimated:** 2-3 hours | **Status:** ✅ Complete (2026-04-09)
+
+---
+
+### Task 1.5: Output Validation & QA Report ✅
+- [x] Implement collect_qa_metrics()
+- [x] Implement generate_qa_report()
+- [x] Add hillshade preview generation
+- [x] Test QA report generation
+- [x] Verify all metrics calculated correctly
+- [x] Open HTML report in browser
+- [x] Commit: `feat: add QA report generation`
+
+**Estimated:** 2-3 hours | **Status:** ✅ Complete (2026-04-09)
+
+---
+
+## Phase 2: Python Wrapper (Week 2)
+
+### Task 2.1: Python CLI Script
+- [ ] Set up Python project structure
+- [ ] Install dependencies (click, laspy, etc.)
+- [ ] Create lidar_pipeline.py with Click
+- [ ] Implement R script wrapper via subprocess
+- [ ] Add progress parsing from R logs
+- [ ] Test Python CLI
+- [ ] Commit: `feat: add Python CLI wrapper`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 2.2: Input Validation Module
+- [ ] Create validators.py
+- [ ] Implement LAS file validation (laspy)
+- [ ] Add CRS consistency check
+- [ ] Add disk space check
+- [ ] Add memory estimation
+- [ ] Write unit tests
+- [ ] Commit: `feat: add input validation module`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 2.3: Progress Monitoring
+- [ ] Implement R log parser
+- [ ] Add tqdm progress bars
+- [ ] Add ETA calculation
+- [ ] Handle R script crashes
+- [ ] Test with various scenarios
+- [ ] Commit: `feat: add real-time progress monitoring`
+
+**Status:** ⚪ Not Started
+
+---
+
+## Phase 3: Streamlit GUI (Week 3-4)
+
+### Task 3.1: Basic UI Layout
+- [ ] Set up Streamlit project
+- [ ] Create main app.py
+- [ ] Add file upload widget
+- [ ] Add parameter configuration panel
+- [ ] Add run button and progress indicator
+- [ ] Add results display area
+- [ ] Commit: `feat: add basic Streamlit UI`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 3.2: Interactive Parameter Configuration
+- [ ] Add preset profiles (Fast/Balanced/Accurate)
+- [ ] Add advanced mode toggle
+- [ ] Add parameter tooltips
+- [ ] Add real-time validation
+- [ ] Test all parameter combinations
+- [ ] Commit: `feat: add interactive parameter config`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 3.3: Results Visualization
+- [ ] Add folium/plotly map
+- [ ] Add hillshade overlay
+- [ ] Add elevation profile tool
+- [ ] Add statistics dashboard
+- [ ] Add download buttons
+- [ ] Commit: `feat: add results visualization`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 3.4: Batch Processing
+- [ ] Implement job queue
+- [ ] Add job status table
+- [ ] Add email notifications (optional)
+- [ ] Test multi-job workflow
+- [ ] Commit: `feat: add batch processing`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 3.5: Error Handling & User Feedback
+- [ ] Add user-friendly error messages
+- [ ] Add suggestions for common issues
+- [ ] Add logs viewer
+- [ ] Test error scenarios
+- [ ] Commit: `feat: improve error handling and UX`
+
+**Status:** ⚪ Not Started
+
+---
+
+## Phase 4: Documentation & Packaging (Week 5)
+
+### Task 4.1: User Documentation
+- [ ] Update README with installation
+- [ ] Write quickstart guide
+- [ ] Write parameter reference
+- [ ] Write troubleshooting guide
+- [ ] Add example datasets
+- [ ] Commit: `docs: add user documentation`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 4.2: Developer Documentation
+- [ ] Create architecture diagram
+- [ ] Write API reference
+- [ ] Write contributing guide
+- [ ] Write testing guide
+- [ ] Commit: `docs: add developer documentation`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 4.3: Deployment Options
+- [ ] Create Dockerfile
+- [ ] Create docker-compose.yml
+- [ ] Write Streamlit Cloud deployment guide
+- [ ] Create environment setup scripts
+- [ ] Test all deployment methods
+- [ ] Commit: `feat: add deployment configurations`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 4.4: Testing
+- [ ] Write unit tests (Python)
+- [ ] Write integration tests
+- [ ] Set up GitHub Actions CI/CD
+- [ ] Run performance benchmarks
+- [ ] Commit: `test: add automated testing`
+
+**Status:** ⚪ Not Started
+
+---
+
+## Phase 5: Portfolio Integration (Week 6)
+
+### Task 5.1: Demo Page
+- [ ] Create project page on yangchh.github.io
+- [ ] Deploy Streamlit app (or record demo)
+- [ ] Write technical write-up
+- [ ] Add screenshots/videos
+- [ ] Commit: `docs: add portfolio project page`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 5.2: Case Study
+- [ ] Process real BC terrain dataset
+- [ ] Create before/after visualizations
+- [ ] Write quantitative results
+- [ ] Create client-facing report template
+- [ ] Commit: `docs: add case study`
+
+**Status:** ⚪ Not Started
+
+---
+
+### Task 5.3: GitHub Polish
+- [ ] Clean commit history
+- [ ] Create release v1.0.0
+- [ ] Set up GitHub Pages docs
+- [ ] Add social preview image
+- [ ] Announce on LinkedIn/Twitter
+- [ ] Commit: `chore: prepare v1.0.0 release`
+
+**Status:** ⚪ Not Started
+
+---
+
+## Notes & Blockers
+
+### Current Blockers
+- None
+
+### Decisions Made
+- 2026-04-07: Chose R engine + Python Streamlit GUI approach
+- 2026-04-07: Target 6-week timeline for full completion
+
+### Questions / To Discuss
+- Which repo to start with? (run_lidar_pipeline vs Stockpile_Volume_Estimation)
+- Deploy to Streamlit Cloud or self-host?
+- Include 3D visualization (Potree)?
+
+---
+
+## Daily Log
+
+### 2026-04-07
+- Created project roadmap and Phase 1 implementation guide
+- Set up task tracker
+- ✅ Completed Task 1.1 - CLI Argument Parsing
+- ✅ Completed Task 1.2 - YAML Config Support
+
+### 2026-04-08
+- ✅ Completed Task 1.3 - Logging & Error Handling
+- Fixed remaining cat() calls in R script
+
+### 2026-04-09
+- ✅ Completed Task 1.4 - Checkpoint & Resume
+- ✅ Completed Task 1.5 - QA Report Generation
+- 🎉 Phase 1 Complete!
+
+---
+
+**Next Action:** Start Phase 2, Task 2.1 - Python CLI Script
