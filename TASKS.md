@@ -11,7 +11,7 @@
 | Phase | Status | Progress | Target Date |
 |-------|--------|----------|-------------|
 | Phase 1: R Engine Refactoring | ✅ Complete | 5/5 tasks | 2026-04-14 |
-| Phase 2: Python Wrapper | 🔵 In Progress | 2/3 tasks | 2026-04-22 |
+| Phase 2: Python Wrapper | ✅ Complete | 3/3 tasks | 2026-04-22 |
 | Phase 3: Streamlit GUI | ⚪ Pending | 0/5 tasks | 2026-05-05 |
 | Phase 4: Documentation | ⚪ Pending | 0/4 tasks | 2026-05-12 |
 | Phase 5: Portfolio Integration | ⚪ Pending | 0/3 tasks | 2026-05-19 |
@@ -97,10 +97,10 @@
 - [x] Create lidar_pipeline.py with Click
 - [x] Implement R script wrapper via subprocess
 - [x] Add progress parsing from R logs
-- [ ] Test Python CLI
-- [ ] Commit: `feat: add Python CLI wrapper`
+- [x] Test Python CLI
+- [x] Commit: `feat: add Python CLI wrapper`
 
-**Status:** 🔵 In Progress (2026-04-22)
+**Status:** ✅ Complete (2026-04-22)
 
 ---
 
@@ -110,10 +110,10 @@
 - [x] Add CRS consistency check
 - [x] Add disk space check
 - [x] Add memory estimation
-- [ ] Write unit tests
-- [ ] Commit: `feat: add input validation module`
+- [x] Write unit tests
+- [x] Commit: `feat: add input validation module`
 
-**Status:** 🔵 In Progress (2026-04-22)
+**Status:** ✅ Complete (2026-04-22)
 
 ---
 
@@ -122,10 +122,10 @@
 - [x] Add tqdm progress bars
 - [x] Add ETA calculation
 - [x] Handle R script crashes
-- [ ] Test with various scenarios
-- [ ] Commit: `feat: add real-time progress monitoring`
+- [x] Test with various scenarios
+- [x] Commit: `feat: add real-time progress monitoring`
 
-**Status:** 🔵 In Progress (2026-04-22)
+**Status:** ✅ Complete (2026-04-22)
 
 ---
 
@@ -279,6 +279,9 @@
 ### Current Blockers
 - None
 
+### Fixed Issues
+- 2026-04-22: Fixed pyproject.toml build-backend (`setuptools.backends._legacy:_Backend` → `setuptools.build_meta`)
+
 ### Decisions Made
 - 2026-04-07: Chose R engine + Python Streamlit GUI approach
 - 2026-04-07: Target 6-week timeline for full completion
@@ -315,6 +318,13 @@
 - Progress monitoring: real-time R log parser with tqdm integration
 - Remaining: unit tests, end-to-end testing with real LAS data
 
+### 2026-04-22 (late)
+- Fixed pyproject.toml build-backend (was broken, couldn't pip install)
+- Wrote 32 unit tests: validators, progress parser, runner command builder, CLI integration
+- All 32 tests passing
+- Committed: `test: add unit tests for Python wrapper (Phase 2)`
+- 🎉 Phase 2 Complete!
+
 ---
 
-**Next Action:** Test Python CLI with sample data, write unit tests, commit Phase 2
+**Next Action:** Start Phase 3 — Streamlit GUI (Task 3.1: Basic UI Layout)
