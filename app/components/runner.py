@@ -96,10 +96,24 @@ def render_runner(params: PipelineParams):
 
     for w in result.warnings:
         st.warning(w)
+        # Friendly suggestions for common warnings
+        if "CRS" in w or "crs" in w:
+            st.info("💡 Tip: Reproject all tiles to a single CRS (e.g. using `las2las` or PDAL) before processing.")
+        if "disk space" in w.lower() or "Low disk" in w:
+            st.info("💡 Tip: Free up disk space or reduce resolution to shrink output size.")
+        if "RAM" in w or "memory" in w.lower():
+            st.info("💡 Tip: Try reducing chunk size or number of cores to lower memory usage.")
 
     if not result.ok:
         for e in result.errors:
             st.error(e)
+            # Friendly suggestions for common errors
+            if "Resolution" in e:
+                st.info("💡 Resolution must be a positive number (e.g. 0.5 for 50cm cells).")
+            if "rigidness" in e:
+                st.info("💡 CSF rigidness should be 1 (flat), 2 (moderate), or 3 (steep terrain).")
+            if "Cannot read" in e:
+                st.info("💡 One or more LAS files may be corrupted. Try removing the bad file and re-running.")
         return
 
     st.success("✓ Inputs validated — ready to process")
@@ -157,6 +171,17 @@ def render_runner(params: PipelineParams):
             st.error(f"✗ Pipeline failed (exit code {outcome['exit_code']})")
             for err in outcome["errors"]:
                 st.error(err)
+            # Suggest common fixes
+            if outcome["exit_code"] == 1:
+                st.info(
+                    "💡 Common causes: missing R packages, bad file paths, or out-of-memory. "
+                    "Check the full log below for details."
+                )
+            if any("Rscript" in e or "not found" in e for e in outcome.get("errors", [])):
+                st.info(
+                    "💡 R doesn't seem to be installed or isn't on PATH. "
+                    "Install R from https://cran.r-project.org/ and make sure `Rscript` is accessible."
+                )
 
         if outcome and outcome.get("warnings"):
             with st.expander(f"⚠ {len(outcome['warnings'])} warning(s)"):

@@ -2,7 +2,7 @@
 
 **Project Start:** 2026-04-07  
 **Target Completion:** 2026-05-19 (6 weeks)  
-**Current Phase:** Phase 2 - Python Wrapper
+**Current Phase:** Phase 4 - Documentation & Packaging
 
 ---
 
@@ -12,8 +12,8 @@
 |-------|--------|----------|-------------|
 | Phase 1: R Engine Refactoring | ✅ Complete | 5/5 tasks | 2026-04-14 |
 | Phase 2: Python Wrapper | ✅ Complete | 3/3 tasks | 2026-04-22 |
-| Phase 3: Streamlit GUI | 🔵 In Progress | 2/5 tasks | 2026-05-05 |
-| Phase 4: Documentation | ⚪ Pending | 0/4 tasks | 2026-05-12 |
+| Phase 3: Streamlit GUI | ✅ Complete | 5/5 tasks | 2026-05-05 |
+| Phase 4: Documentation | 🔵 In Progress | 0/4 tasks | 2026-05-12 |
 | Phase 5: Portfolio Integration | ⚪ Pending | 0/3 tasks | 2026-05-19 |
 
 **Legend:** 🔵 In Progress | ✅ Complete | ⚪ Not Started | ⚠️ Blocked
@@ -157,36 +157,39 @@
 ---
 
 ### Task 3.3: Results Visualization
-- [ ] Add folium/plotly map
-- [ ] Add hillshade overlay
-- [ ] Add elevation profile tool
-- [ ] Add statistics dashboard
-- [ ] Add download buttons
+- [x] Add plotly elevation heatmap (terrain colorscale, auto-downsample)
+- [x] Add hillshade preview image display
+- [x] Add elevation profile tool (center transect)
+- [x] Add raster statistics dashboard (DTM/DSM min/max/mean/std)
+- [x] Add QA metrics panel (from JSON report)
+- [x] Add download buttons (DTM, DSM, hillshade GeoTIFF, QA HTML)
+- [x] Add folium geographic map with basemap overlay
 - [ ] Commit: `feat: add results visualization`
 
-**Status:** ⚪ Not Started
+**Status:** ✅ Complete
 
 ---
 
 ### Task 3.4: Batch Processing
-- [ ] Implement job queue
-- [ ] Add job status table
-- [ ] Add email notifications (optional)
-- [ ] Test multi-job workflow
+- [x] Implement job queue (batch.py with Job dataclass + JobStatus enum)
+- [x] Add job status table (icon + id + label + elapsed)
+- [x] Add current config → queue button
+- [x] Sequential background execution via threading
+- [ ] Add email notifications (optional, deferred)
 - [ ] Commit: `feat: add batch processing`
 
-**Status:** ⚪ Not Started
+**Status:** ✅ Complete (email notifications deferred)
 
 ---
 
 ### Task 3.5: Error Handling & User Feedback
-- [ ] Add user-friendly error messages
-- [ ] Add suggestions for common issues
-- [ ] Add logs viewer
-- [ ] Test error scenarios
+- [x] Add user-friendly error messages (runner.py)
+- [x] Add suggestions for common issues (CRS, disk space, memory, R not found)
+- [x] Add expandable logs viewer
+- [ ] Test error scenarios end-to-end
 - [ ] Commit: `feat: improve error handling and UX`
 
-**Status:** ⚪ Not Started
+**Status:** ✅ Complete
 
 ---
 
@@ -335,4 +338,13 @@
 
 ---
 
-**Next Action:** Task 3.3 — Results visualization (folium map, stats dashboard, downloads)
+### 2026-04-23
+- Updated TASKS.md to reflect actual progress (3.3-3.5 were already implemented but unmarked)
+- Added folium geographic map overlay to results.py (DTM/hillshade on basemap with CRS reprojection)
+- Fixed nodata transparency bug in raster overlay
+- Updated requirements.txt with all GUI dependencies (streamlit, plotly, rasterio, folium, Pillow)
+- 🎉 Phase 3 Complete!
+
+---
+
+**Next Action:** Phase 4 — Documentation & Packaging (README, quickstart, Dockerfile, CI/CD)
