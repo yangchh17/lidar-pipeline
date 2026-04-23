@@ -1,107 +1,102 @@
 # LiDAR Processing Pipeline
 
-Automated terrain processing pipeline for tiled LAS/LAZ point cloud data.
+Automated terrain processing pipeline for tiled LAS/LAZ point cloud data. Generates DTM, DSM, and hillshade rasters from raw LiDAR tiles.
 
-**Generates:** DTM, DSM, and hillshade rasters from raw LiDAR tiles.
+Includes a production-ready R engine, a Python CLI wrapper, and a Streamlit web GUI.
 
-> **New to LiDAR?** Check out the [Beginner's Guide](docs/GUIDE.md) — a step-by-step tutorial covering LiDAR fundamentals, setup, and how to use this pipeline from scratch.
+> **New to LiDAR?** Check out the [Beginner's Guide](docs/GUIDE.md) for fundamentals and a step-by-step tutorial.
 
-## Requirements
+## Features
 
-```r
-install.packages(c("lidR", "terra", "argparse", "yaml"))
-# Optional for parallel processing:
-install.packages("future")
-```
+- **R engine** — lidR-based processing with CSF ground classification, pitfree DSM, knnidw DTM
+- **Python CLI** — input validation, real-time progress bars, structured JSON output
+- **Streamlit GUI** — parameter presets, interactive maps, batch job queue, download buttons
+- **Checkpoint & resume** — interrupt and restart without reprocessing completed tiles
+- **QA reporting** — automated metrics, hillshade previews, HTML summary
 
 ## Quick Start
 
+### Option 1: Streamlit GUI
+
 ```bash
-# Basic usage
+pip install -e .
+streamlit run app/main.py
+```
+
+Open the browser, set input/output paths, pick a preset, and click Run.
+
+### Option 2: Python CLI
+
+```bash
+pip install -e .
+lidar-pipeline --input ./data/tiles --output ./results
+lidar-pipeline --input ./data/tiles --output ./results --resolution 1.0 --cores 4
+lidar-pipeline --input ./data/tiles --output ./results --dry-run
+```
+
+### Option 3: R engine directly
+
+```bash
 Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results
-
-# Using a config file
-cp config.example.yaml config.yaml
-# Edit config.yaml with your paths and parameters
 Rscript run_lidar_pipeline.R --config config.yaml
-
-# Config + CLI override (CLI args take precedence)
 Rscript run_lidar_pipeline.R --config config.yaml --resolution 1.0 --cores 8
-
-# Custom resolution and CSF parameters
-Rscript run_lidar_pipeline.R \
-  --input ./data/tiles \
-  --output ./results \
-  --resolution 1.0 \
-  --csf-rigidness 1
-
-# Validate inputs without processing
-Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results --dry-run
-
-# DTM only (skip DSM and hillshade)
-Rscript run_lidar_pipeline.R \
-  --input ./data/tiles \
-  --output ./results \
-  --skip-dsm --skip-hillshade
-
-# Parallel processing
-Rscript run_lidar_pipeline.R --input ./data/tiles --output ./results --cores 4
 ```
 
-## Configuration Files
+## Installation
 
-Use YAML config files to avoid repetitive CLI arguments:
+### Prerequisites
 
-1. Copy `config.example.yaml` to `config.yaml`
-2. Edit paths and parameters
-3. Run with `--config config.yaml`
+- **R** ≥ 4.2 with packages: `lidR`, `terra`, `argparse`, `yaml`, `futile.logger`, `R6`, `jsonlite`
+- **Python** ≥ 3.10
 
-**CLI arguments override config values**, so you can set defaults in the config and override specific parameters on the command line.
+### Install R packages
 
-Example `config.yaml`:
-```yaml
-input: /data/project_2024/tiles
-output: /data/project_2024/results
-resolution: 0.5
-cores: 8
-csf:
-  rigidness: 3
-  threshold: 0.4
+```r
+install.packages(c("lidR", "terra", "argparse", "yaml", "futile.logger", "R6", "jsonlite", "progress"))
 ```
+
+### Install Python package
+
+```bash
+git clone https://github.com/yangchh/lidar-pipeline.git
+cd lidar-pipeline
+pip install -e .
+```
+
+## Configuration
+
+Use YAML config files to save parameter sets:
+
+```bash
+cp config.example.yaml config.yaml
+# Edit paths and parameters, then:
+Rscript run_lidar_pipeline.R --config config.yaml
+```
+
+CLI arguments always override config file values.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--config` | — | YAML config file (CLI args override) |
 | `--input` | (required) | Directory containing LAS/LAZ tiles |
 | `--output` | (required) | Output directory |
-| `--resolution` | 0.5 | Raster resolution in meters |
+| `--config` | — | YAML config file |
+| `--resolution` | 0.5 | Raster cell size in meters |
 | `--csf-cloth-res` | 0.6 | CSF cloth resolution |
 | `--csf-threshold` | 0.4 | CSF classification threshold |
-| `--csf-rigidness` | 3 | 1=flat, 2=moderate, 3=steep terrain |
-| `--chunk-size` | 250 | Processing chunk size (meters) |
-| `--chunk-buffer` | 50 | Chunk buffer (meters) |
+| `--csf-rigidness` | 3 | 1=flat, 2=moderate, 3=steep |
+| `--chunk-size` | 250 | Processing chunk size (m) |
+| `--chunk-buffer` | 50 | Chunk overlap buffer (m) |
 | `--cores` | 1 | Parallel processing cores |
-| `--hillshade-angle` | 40 | Sun elevation for hillshade |
-| `--hillshade-direction` | 270 | Sun azimuth for hillshade |
+| `--hillshade-angle` | 40 | Sun elevation angle (°) |
+| `--hillshade-direction` | 270 | Sun azimuth (°) |
 | `--skip-dtm` | false | Skip DTM generation |
 | `--skip-dsm` | false | Skip DSM generation |
 | `--skip-hillshade` | false | Skip hillshade generation |
-| `--dry-run` | false | Validate only, no processing |
-
-## Logging
-
-All output uses structured logging via `futile.logger`:
-
-- Console: INFO level by default, DEBUG with `--verbose`
-- File: always DEBUG level, saved to `<output_dir>/pipeline.log`
-- Progress bars show real-time tile processing status
-
-```bash
-# Verbose mode for debugging
-Rscript run_lidar_pipeline.R --config config.yaml --verbose
-```
+| `--resume` | false | Resume from checkpoint |
+| `--dry-run` | false | Validate only |
+| `--verbose` | false | Debug-level logging |
 
 ## Output Structure
 
@@ -111,19 +106,64 @@ results/
 ├── 02_classified/        # Ground-classified tiles
 ├── 03_dtm/               # DTM raster tiles
 ├── 04_dsm/               # DSM raster tiles
-├── 05_hillshade/         # (reserved)
 ├── dtm.tif               # Merged DTM
 ├── dsm.tif               # Merged DSM
-└── hillshade.tif         # Hillshade raster
+├── hillshade.tif         # Hillshade raster
+├── dtm_hillshade.png     # Quick preview
+├── qa_report.html        # QA summary
+├── qa_metrics.json       # Machine-readable metrics
+└── pipeline.log          # Processing log
 ```
 
 ## Processing Steps
 
 1. **Filter duplicates** — removes duplicate points per tile
 2. **Ground classification** — CSF (Cloth Simulation Filter) algorithm
-3. **DTM** — Digital Terrain Model via knnidw interpolation
-4. **DSM** — Digital Surface Model via pitfree algorithm
-5. **Hillshade** — shaded relief from DTM
+3. **DTM generation** — Digital Terrain Model via knnidw interpolation
+4. **DSM generation** — Digital Surface Model via pitfree algorithm
+5. **Hillshade** — shaded relief visualization from DTM
+6. **QA report** — elevation stats, coverage metrics, preview images
+
+## GUI Screenshots
+
+The Streamlit GUI provides:
+
+- Sidebar with parameter presets (Fast / Balanced / Accurate) and advanced mode
+- Run tab with input validation, progress tracking, and error suggestions
+- Results tab with interactive elevation heatmap, geographic map overlay, elevation profile, and download buttons
+- Batch tab for queuing multiple processing jobs
+
+## Testing
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
+32 unit tests covering validators, progress parser, runner command builder, and CLI integration.
+
+## Project Structure
+
+```
+lidar-pipeline/
+├── run_lidar_pipeline.R       # R engine (production CLI)
+├── config.example.yaml        # Example configuration
+├── lidar_pipeline/            # Python package
+│   ├── cli.py                 # Click CLI wrapper
+│   ├── runner.py              # R subprocess runner
+│   ├── validators.py          # Input validation (laspy)
+│   └── progress.py            # Real-time log parser + tqdm
+├── app/                       # Streamlit GUI
+│   ├── main.py                # App entry point
+│   └── components/
+│       ├── sidebar.py         # Parameters + presets
+│       ├── runner.py          # Run tab + progress
+│       ├── results.py         # Visualization + downloads
+│       └── batch.py           # Job queue
+├── tests/                     # Unit tests
+└── docs/
+    └── GUIDE.md               # Beginner's guide
+```
 
 ## License
 

@@ -13,7 +13,7 @@
 | Phase 1: R Engine Refactoring | ✅ Complete | 5/5 tasks | 2026-04-14 |
 | Phase 2: Python Wrapper | ✅ Complete | 3/3 tasks | 2026-04-22 |
 | Phase 3: Streamlit GUI | ✅ Complete | 5/5 tasks | 2026-05-05 |
-| Phase 4: Documentation | 🔵 In Progress | 0/4 tasks | 2026-05-12 |
+| Phase 4: Documentation | 🔵 In Progress | 1/4 tasks | 2026-05-12 |
 | Phase 5: Portfolio Integration | ⚪ Pending | 0/3 tasks | 2026-05-19 |
 
 **Legend:** 🔵 In Progress | ✅ Complete | ⚪ Not Started | ⚠️ Blocked
@@ -196,14 +196,14 @@
 ## Phase 4: Documentation & Packaging (Week 5)
 
 ### Task 4.1: User Documentation
-- [ ] Update README with installation
-- [ ] Write quickstart guide
-- [ ] Write parameter reference
-- [ ] Write troubleshooting guide
-- [ ] Add example datasets
+- [x] Rewrite README with full project overview (R + Python CLI + GUI)
+- [x] Write quickstart guide (docs/QUICKSTART.md)
+- [x] Parameter reference in README
+- [x] Troubleshooting table in quickstart
+- [ ] Add example datasets (small test LAS files)
 - [ ] Commit: `docs: add user documentation`
 
-**Status:** ⚪ Not Started
+**Status:** 🔵 In Progress (example datasets remaining)
 
 ---
 
@@ -219,25 +219,25 @@
 ---
 
 ### Task 4.3: Deployment Options
-- [ ] Create Dockerfile
-- [ ] Create docker-compose.yml
+- [x] Create Dockerfile (rocker/r-ver + Python venv + Streamlit)
+- [x] Create docker-compose.yml (volume mounts for data/results)
 - [ ] Write Streamlit Cloud deployment guide
-- [ ] Create environment setup scripts
+- [ ] Create conda environment.yml
 - [ ] Test all deployment methods
 - [ ] Commit: `feat: add deployment configurations`
 
-**Status:** ⚪ Not Started
+**Status:** 🔵 In Progress
 
 ---
 
 ### Task 4.4: Testing
-- [ ] Write unit tests (Python)
-- [ ] Write integration tests
-- [ ] Set up GitHub Actions CI/CD
+- [x] Write unit tests (Python) — 32 tests passing
+- [x] Set up GitHub Actions CI/CD (.github/workflows/ci.yml)
+- [ ] Write integration tests (with real LAS data)
 - [ ] Run performance benchmarks
 - [ ] Commit: `test: add automated testing`
 
-**Status:** ⚪ Not Started
+**Status:** 🔵 In Progress
 
 ---
 
