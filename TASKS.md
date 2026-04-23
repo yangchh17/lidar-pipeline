@@ -12,7 +12,7 @@
 |-------|--------|----------|-------------|
 | Phase 1: R Engine Refactoring | ✅ Complete | 5/5 tasks | 2026-04-14 |
 | Phase 2: Python Wrapper | ✅ Complete | 3/3 tasks | 2026-04-22 |
-| Phase 3: Streamlit GUI | ⚪ Pending | 0/5 tasks | 2026-05-05 |
+| Phase 3: Streamlit GUI | 🔵 In Progress | 2/5 tasks | 2026-05-05 |
 | Phase 4: Documentation | ⚪ Pending | 0/4 tasks | 2026-05-12 |
 | Phase 5: Portfolio Integration | ⚪ Pending | 0/3 tasks | 2026-05-19 |
 
@@ -132,27 +132,27 @@
 ## Phase 3: Streamlit GUI (Week 3-4)
 
 ### Task 3.1: Basic UI Layout
-- [ ] Set up Streamlit project
-- [ ] Create main app.py
-- [ ] Add file upload widget
-- [ ] Add parameter configuration panel
-- [ ] Add run button and progress indicator
-- [ ] Add results display area
-- [ ] Commit: `feat: add basic Streamlit UI`
+- [x] Set up Streamlit project
+- [x] Create main app.py
+- [x] Add file upload widget
+- [x] Add parameter configuration panel
+- [x] Add run button and progress indicator
+- [x] Add results display area
+- [x] Commit: `feat: add basic Streamlit UI`
 
-**Status:** ⚪ Not Started
+**Status:** ✅ Complete (2026-04-22)
 
 ---
 
 ### Task 3.2: Interactive Parameter Configuration
-- [ ] Add preset profiles (Fast/Balanced/Accurate)
-- [ ] Add advanced mode toggle
-- [ ] Add parameter tooltips
-- [ ] Add real-time validation
-- [ ] Test all parameter combinations
-- [ ] Commit: `feat: add interactive parameter config`
+- [x] Add preset profiles (Fast/Balanced/Accurate)
+- [x] Add advanced mode toggle
+- [x] Add parameter tooltips
+- [x] Add real-time validation
+- [x] Test all parameter combinations
+- [x] Commit: `feat: add interactive parameter config`
 
-**Status:** ⚪ Not Started
+**Status:** ✅ Complete (2026-04-22)
 
 ---
 
@@ -327,4 +327,12 @@
 
 ---
 
-**Next Action:** Start Phase 3 — Streamlit GUI (Task 3.1: Basic UI Layout)
+### 2026-04-22 (late, cont.)
+- Started Phase 3: Streamlit GUI
+- ✅ Task 3.1: Basic UI layout (main.py, sidebar, runner, results tabs)
+- ✅ Task 3.2: Interactive params (3 presets, advanced mode, tooltips, validation)
+- App structure: app/main.py + app/components/{sidebar,runner,results}.py
+
+---
+
+**Next Action:** Task 3.3 — Results visualization (folium map, stats dashboard, downloads)
